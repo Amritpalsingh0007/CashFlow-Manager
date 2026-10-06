@@ -1,26 +1,135 @@
 @import "tailwindcss";
 
+/* ─── Brook Design Tokens (Geist system) ─────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Core ink/canvas */
+  --color-ink:              #171717;
+  --color-body:             #4d4d4d;
+  --color-mute:             #8f8f8f;
+  --color-faint:            #a1a1a1;
+  --color-hairline:         #ebebeb;
+  --color-hairline-soft:    #f2f2f2;
+  --color-canvas:           #fafafa;
+  --color-canvas-elevated:  #ffffff;
+
+  /* Brand accents */
+  --color-link:             #0070f3;
+  --color-link-deep:        #0761d1;
+  --color-link-soft:        #d3e5ff;
+  --color-error:            #ee0000;
+  --color-error-deep:       #c50000;
+  --color-warning:          #f5a623;
+  --color-warning-soft:     #ffefcf;
+  --color-success:          #0070f3;
+
+  /* Gradient stops */
+  --gradient-develop-start: #007cf0;
+  --gradient-develop-end:   #00dfd8;
+  --gradient-preview-start: #7928ca;
+  --gradient-preview-end:   #ff0080;
+  --gradient-ship-start:    #ff4d4d;
+  --gradient-ship-end:      #f9cb28;
+
+  /* Spacing */
+  --space-xxs:  4px;
+  --space-xs:   8px;
+  --space-sm:   12px;
+  --space-md:   16px;
+  --space-lg:   24px;
+  --space-xl:   32px;
+  --space-2xl:  40px;
+  --space-3xl:  64px;
+  --space-4xl:  96px;
+
+  /* Border radius */
+  --rounded-sm:   6px;
+  --rounded-md:   12px;
+  --rounded-lg:   16px;
+  --rounded-pill: 100px;
+  --rounded-full: 9999px;
+
+  /* Typography */
+  --font-sans: var(--font-geist-sans), Arial, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--color-canvas);
+  --color-foreground: var(--color-ink);
+  --font-sans:        var(--font-sans);
+  --font-mono:        var(--font-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* ─── Base ───────────────────────────────────────────────────────────────── */
+html {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+  background: var(--color-canvas);
+  color: var(--color-ink);
 }
+
+/* ─── Typography utilities ───────────────────────────────────────────────── */
+.display-xl {
+  font-family: var(--font-sans);
+  font-size: 48px;
+  font-weight: 600;
+  line-height: 48px;
+  letter-spacing: -2.4px;
+}
+
+.heading-lg {
+  font-family: var(--font-sans);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 40px;
+  letter-spacing: -1.28px;
+}
+
+.heading-md {
+  font-family: var(--font-sans);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  letter-spacing: -0.4px;
+}
+
+.label-sm {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: -0.28px;
+}
+
+.mono-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+/* ─── Status badge colors ────────────────────────────────────────────────── */
+.status-order-received  { background: #e0f0ff; color: #0070f3; }
+.status-in-transit      { background: #fff3d6; color: #ab570a; }
+.status-delivered       { background: #d8ccf1; color: #7928ca; }
+.status-docs-sent       { background: #f2f2f2; color: #4d4d4d; }
+.status-payment-pending { background: #ffefcf; color: #ab570a; }
+.status-completed       { background: #d4f7e8; color: #0a6640; }
+.status-in-between      { background: #fafafa; color: #8f8f8f; border: 1px solid #ebebeb; }
+
+/* ─── Expense category colors ────────────────────────────────────────────── */
+.cat-fuel        { background: #fff3d6; color: #ab570a; }
+.cat-toll        { background: #e0f0ff; color: #0070f3; }
+.cat-maintenance { background: #fce8e8; color: #c50000; }
+.cat-household   { background: #d8ccf1; color: #7928ca; }
+.cat-grocery     { background: #d4f7e8; color: #0a6640; }
+.cat-medical     { background: #fce8e8; color: #c50000; }
+.cat-default     { background: #f2f2f2; color: #4d4d4d; }

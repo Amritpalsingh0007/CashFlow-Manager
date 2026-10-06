@@ -30,8 +30,16 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files — keep only the example template
+.env.local
+.env*.local
+.env.production
+.env.development
+
+# SQLite database file — persisted data, never in source control
+brook.db
+*.db-shm
+*.db-wal
 
 # vercel
 .vercel
