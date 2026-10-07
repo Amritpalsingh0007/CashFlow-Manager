@@ -12,6 +12,7 @@ function tripDetailFromRows(trip: Record<string, unknown>, payments: Record<stri
     id:              trip.id,
     orgId:           trip.org_id,
     truckId:         trip.truck_id,
+    tripType:        trip.trip_type as 'REVENUE' | 'IN_BETWEEN',
     brokerName:      trip.broker_name,
     ratePerTon:      fromDb(trip.rate_per_ton as number),
     agreedWeight:    fromDb(trip.agreed_weight as number),
@@ -99,7 +100,7 @@ export async function PATCH(
     if (body.shortagePenalty !== undefined) updates.shortage_penalty = toDb(body.shortagePenalty)
     if (body.brokeragePct    !== undefined) updates.brokerage_pct    = toDb(body.brokeragePct)
     if (body.endDate         !== undefined) updates.end_date         = body.endDate
-    if (body.paymentReceived !== undefined) updates.payment_received = body.paymentReceived ? 1 : 0
+    // paymentReceived is NOT editable via this endpoint — set automatically by PaymentService
 
     const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(', ')
     db.prepare(`UPDATE trip SET ${setClauses} WHERE id = ?`).run(...Object.values(updates), id)
@@ -111,10 +112,10 @@ export async function PATCH(
       const ibExists = db.prepare('SELECT id FROM trip WHERE id = ?').get(ibId)
       if (!ibExists) {
         db.prepare(`
-          INSERT OR IGNORE INTO trip (id, org_id, truck_id, broker_name, rate_per_ton, agreed_weight,
+          INSERT OR IGNORE INTO trip (id, org_id, truck_id, trip_type, broker_name, rate_per_ton, agreed_weight,
             brokerage_pct, status, start_date, created_by, updated_by, created_at, updated_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
-        `).run(ibId, tripRow.org_id, tripRow.truck_id, 'IN_BETWEEN', 0, 0, 0, 'IN_BETWEEN', new Date().toISOString().slice(0, 10), profile.id, profile.id)
+        `).run(ibId, tripRow.org_id, tripRow.truck_id, 'IN_BETWEEN', 'IN_BETWEEN', 0, 0, 0, 'IN_TRANSIT', new Date().toISOString().slice(0, 10), profile.id, profile.id)
       }
     }
 

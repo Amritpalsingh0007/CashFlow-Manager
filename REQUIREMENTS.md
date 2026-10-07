@@ -30,10 +30,15 @@ There are exactly three users in one organisation. The system is not multi-tenan
 
 ### Role rules
 - ADMIN is the only role that creates and manages trips, payments, truck, and users
-- BUSINESS and PERSONAL users see only a simplified expense entry screen and their own expense history
-- ADMIN sees all expenses across all categories
-- Non-admin users are created by ADMIN — there is no self-registration
-- Admin account is seeded into the database on first deploy — no setup endpoint needed
+- BUSINESS can submit: FUEL, TOLL, CLEANING, OTHER_TRIP categories only. MUST select an active trip.
+- PERSONAL can submit: HOUSEHOLD, GROCERY, MEDICAL, OTHER_PERSONAL categories only. tripId always null.
+- BUSINESS user expense requires active trip:
+  - Before expense entry, frontend calls `GET /api/v1/trips/active`.
+  - If no active trips exist → show "No active trip. Contact admin to create a trip." and disable expense entry.
+  - If active trips exist → user must select one. tripId is sent with every submission.
+- ADMIN sees all expenses across all categories.
+- Non-admin users are created by ADMIN — there is no self-registration.
+- Admin account seeded on first deploy.
 
 ---
 
@@ -48,21 +53,35 @@ Trip status flow:
 ORDER_RECEIVED → IN_TRANSIT → DELIVERED → DOCS_SENT → PAYMENT_PENDING → COMPLETED
 ```
 
-When a trip moves to DELIVERED status, the system automatically creates an IN_BETWEEN trip record so the father can continue logging expenses (fuel to reach next pickup) without admin intervention.
+Trip Types:
+- REVENUE: Real delivery with broker, agreed fare, expected payment.
+- IN_BETWEEN: Auto-created when a REVENUE trip reaches DELIVERED; used for repositioning expenses (fuel).
+  - No broker, rate, weight, payment fields.
+  - Automatically status `IN_TRANSIT`.
+  - Closing a REVENUE trip automatically closes any open `IN_BETWEEN` trip.
+  - Only one `IN_BETWEEN` trip active at a time.
+  - Expenses in REVENUE Trip direct costs (fuel, toll, etc.) contribute to gross profit; IN_BETWEEN expenses do not.
+
+### Business Rules
+- **BUSINESS user expense requires active trip:** (as specified in Role rules). ExpenseService validates on POST /expenses that tripId belongs to org and status is not COMPLETED.
+- **Payment received rule:** When admin records a Payment `type = FINAL`, PaymentService automatically sets `trip.payment_received = true` and `trip.status = COMPLETED`.
 
 ### Financial model for one trip
 
 ```
-Agreed fare       = rate_per_ton × agreed_weight        (known approximately upfront)
-Actual fare       = rate_per_ton × actual_weight         (confirmed at delivery)
-Shortage penalty  = deducted by client for weight loss   (one value per trip)
-Brokerage         = actual_fare × brokerage_pct          (deducted by broker, typically 5–6%)
-Advance           = partial payment mid-trip (no brokerage cut on advance)
-Final payment     = actual_fare - shortage_penalty - brokerage - advance
+calculateGrossProfit(tripId):
+  Step 1 — Calculate total revenue
+    totalRevenue = SUM(payment.amount) for all payments of tripId (ADVANCE + FINAL)
+  
+  Step 2 — Calculate total direct trip expenses
+    totalExpenses = SUM(expense.amount) for tripId in categories: [FUEL, TOLL, CLEANING, OTHER_TRIP]
 
-Trip Revenue      = Advance + Final payment
-Trip direct costs = Fuel + Toll + Cleaning + Other trip expenses
-Gross trip profit = Trip Revenue - Trip direct costs
+  Step 3 — Calculate gross profit
+    grossProfit = totalRevenue - totalExpenses
+
+  Returns: TripSummaryDTO { totalRevenue, totalExpenses, grossProfit }
+  
+  Note: IN_BETWEEN trips grossProfit = 0. Money values use DECIMAL(10,2).
 ```
 
 ### Business level P&L
@@ -153,16 +172,17 @@ created_at    TIMESTAMP
 id                UUID PK
 org_id            UUID FK → organisation
 truck_id          UUID FK → truck
-broker_name       VARCHAR NOT NULL
-rate_per_ton      DECIMAL NOT NULL
-agreed_weight     DECIMAL NOT NULL
+trip_type         VARCHAR NOT NULL       ← REVENUE | IN_BETWEEN
+broker_name       VARCHAR
+rate_per_ton      DECIMAL
+agreed_weight     DECIMAL
 actual_weight     DECIMAL                ← updated after delivery
 shortage_penalty  DECIMAL DEFAULT 0
 brokerage_pct     DECIMAL DEFAULT 5.5
-status            VARCHAR NOT NULL       ← ORDER_RECEIVED|IN_TRANSIT|DELIVERED|DOCS_SENT|PAYMENT_PENDING|COMPLETED
+status            VARCHAR NOT NULL       ← ORDER_RECEIVED|IN_TRANSIT|DELIVERED|DOCS_SENT|PAYMENT_PENDING|COMPLETED|IN_BETWEEN
 start_date        DATE NOT NULL
 end_date          DATE
-payment_received  BOOLEAN DEFAULT false
+payment_received  BOOLEAN DEFAULT false  ← system-managed
 created_by        UUID FK → user
 updated_by        UUID FK → user
 created_at        TIMESTAMP
@@ -195,23 +215,18 @@ created_at      TIMESTAMP
 updated_at      TIMESTAMP
 ```
 
-### Expense category reference
+### Expense category reference & Creation Permissions
 
-```
-Trip direct (linked to trip_id):
-  FUEL | TOLL | CLEANING | OTHER_TRIP
-
-Truck overhead (trip_id = null, org level):
-  MAINTENANCE | TYRE | BREAKDOWN | TAX | FASTAG | OTHER_TRUCK
-
-Personal/household (trip_id = null):
-  HOUSEHOLD | GROCERY | MEDICAL | OTHER_PERSONAL
-```
+| Category Group | Categories | Can Be Created By | tripId Required? |
+|---|---|---|---|
+| **Trip Direct** (linked to trip_id) | `FUEL`, `TOLL`, `CLEANING`, `OTHER_TRIP` | ADMIN, BUSINESS | Required for BUSINESS, optional for ADMIN |
+| **Truck Overhead** (trip_id = null, org level) | `MAINTENANCE`, `TYRE`, `BREAKDOWN`, `TAX`, `FASTAG`, `OTHER_TRUCK` | ADMIN only | Null |
+| **Personal / Household** (trip_id = null) | `HOUSEHOLD`, `GROCERY`, `MEDICAL`, `OTHER_PERSONAL` | ADMIN, PERSONAL | Null |
 
 ### How role-based expense filtering works
-- BUSINESS user → sees expenses where category IN (FUEL, TOLL, CLEANING, OTHER_TRIP, MAINTENANCE, TYRE, BREAKDOWN, TAX, FASTAG, OTHER_TRUCK)
-- PERSONAL user → sees expenses where category IN (HOUSEHOLD, GROCERY, MEDICAL, OTHER_PERSONAL)
-- ADMIN → sees all expenses for the organisation
+- BUSINESS user → sees expenses where category IN (`FUEL`, `TOLL`, `CLEANING`, `OTHER_TRIP`)
+- PERSONAL user → sees expenses where category IN (`HOUSEHOLD`, `GROCERY`, `MEDICAL`, `OTHER_PERSONAL`)
+- ADMIN → sees all expenses for the organisation (and has dedicated views for Trips, Truck Overhead, and Household)
 - Filtering is by category field, NOT by who created it — admin can create any category and it will appear in the correct view
 
 ---
@@ -381,12 +396,14 @@ Request: any subset of { "regNumber": "string", "model": "string" }
 Request:
 {
   "truckId": "uuid",
-  "brokerName": "string",
-  "ratePerTon": 1200.00,
-  "agreedWeight": 20.5,
+  "brokerName": "string",           // required for REVENUE, null for IN_BETWEEN
+  "ratePerTon": 1200.00,            // required for REVENUE
+  "agreedWeight": 20.5,             // required for REVENUE
   "startDate": "2024-01-15"
+  // trip_type is system-set: REVENUE for manual creation, IN_BETWEEN auto-created on DELIVERED
 }
-Response: full trip object, status defaults to ORDER_RECEIVED, paymentReceived defaults to false
+Response: full trip object including trip_type, status defaults to ORDER_RECEIVED, paymentReceived defaults to false
+Note: When creating a REVENUE trip via this endpoint, any open IN_BETWEEN trip is automatically closed (status → COMPLETED)
 ```
 
 **GET /trips?page=0&size=20&startDate=date&endDate=date** 🔴
@@ -400,9 +417,23 @@ Response:
 
 **GET /trips/active** 🟡
 ```json
-Response: [ trips where status NOT IN (COMPLETED) ]
-Note: used by father to select which trip to attach an expense to
+Response:
+[
+  {
+    "id": "uuid",
+    "brokerName": "Sharma Brothers",
+    "startDate": "2024-01-15",
+    "status": "IN_TRANSIT",
+    "tripType": "REVENUE"
+  }
+]
 ```
+Rules:
+- Returns trips where status NOT IN (COMPLETED) AND org_id matches the authenticated user's org
+- Returns BOTH REVENUE and IN_BETWEEN trips so father can log expenses against either
+- Ordered by start_date DESC (most recent first)
+- No pagination — active trips list is always small
+- BUSINESS and ADMIN roles can call this — PERSONAL role cannot
 
 **GET /trips/{id}** 🔴
 ```json
@@ -429,14 +460,17 @@ Response:
     "grossProfit": 16800.00
   }
 }
-Note: grossProfit calculated in the trip service (backend), not frontend
 ```
+Note: `paymentReceived` is set automatically by PaymentService on FINAL payment. It is NOT an editable field in PATCH /trips.
 
 **PATCH /trips/{id}** 🔴
 ```json
 Request: any subset of updatable fields
-{ "actualWeight": 20.1, "shortagePenalty": 500.00, "status": "string", "endDate": "date", "paymentReceived": true, "brokeragePct": 5.5 }
-Note: when status changes to DELIVERED, system auto-creates an IN_BETWEEN trip (in the same DB transaction)
+{ "actualWeight": 20.1, "shortagePenalty": 500.00, "status": "string", "endDate": "date", "brokeragePct": 5.5 }
+Note: when status changes to DELIVERED, system auto-creates IN_BETWEEN trip (in the same DB transaction)
+- Admin should NOT set `paymentReceived` via this endpoint — it is set automatically.
+- Changing status to COMPLETED sets `payment_received = true`.
+- The `trip_type` stays REVENUE when admin closes an IN_BETWEEN via creating a new REVENUE trip.
 ```
 
 **DELETE /trips/{id}** 🔴
@@ -457,12 +491,19 @@ Request:
 }
 Response: full expense object with createdBy resolved to user name
 ```
+**Validation Rules:**
+- ADMIN: can submit any category; `tripId` optional (if category is Trip Direct, must provide valid tripId; if Truck Overhead or Personal, must be null).
+- BUSINESS: can submit only FUEL, TOLL, CLEANING, OTHER_TRIP; **must** provide a valid active tripId (status NOT COMPLETED).
+- PERSONAL: can submit only HOUSEHOLD, GROCERY, MEDICAL, OTHER_PERSONAL; `tripId` must be null.
+- If BUSINESS user submits category outside allowed list → 403 FORBIDDEN: "You are not authorised to log this expense category."
+- If BUSINESS user submits without tripId → 400 BAD REQUEST: "A trip must be selected to log a business expense."
+- If BUSINESS user submits tripId that is COMPLETED or does not exist → 400 BAD REQUEST: "Selected trip is not active."
 
 **GET /expenses?page=0&size=20&startDate=date&endDate=date** 🟢
 ```json
 Filtering by role (automatic, backend applies based on JWT role):
   ADMIN    → all expenses for org
-  BUSINESS → categories: FUEL, TOLL, CLEANING, OTHER_TRIP, MAINTENANCE, TYRE, BREAKDOWN, TAX, FASTAG, OTHER_TRUCK
+  BUSINESS → categories: FUEL, TOLL, CLEANING, OTHER_TRIP   ← excludes truck overhead
   PERSONAL → categories: HOUSEHOLD, GROCERY, MEDICAL, OTHER_PERSONAL
 ```
 
@@ -472,6 +513,9 @@ Filtering by role (automatic, backend applies based on JWT role):
 ```json
 Response: all expenses linked to a specific trip
 ```
+**Security Rule:** ExpenseService validates that the trip referenced by `tripId` belongs to the same `org_id` as the authenticated user.
+- If `tripId` belongs to a different org → return 403 FORBIDDEN
+- If `tripId` does not exist → return 404 NOT FOUND
 
 **PATCH /expenses/{id}** 🔴
 ```json
@@ -489,6 +533,14 @@ Note: admin enriches/corrects expenses entered by father or mom
 ```json
 Request: { "tripId": "uuid", "amount": 0.00, "type": "ADVANCE|FINAL", "receivedDate": "date" }
 ```
+**Rules:**
+- PaymentService validates that a trip cannot have more than one ADVANCE and one FINAL payment.
+- If a second FINAL payment is submitted for the same trip → 400 BAD REQUEST: "Final payment already recorded for this trip."
+- Upon successful POST of a FINAL payment, PaymentService automatically:
+  - Sets `trip.payment_received = true`
+  - Sets `trip.status = COMPLETED`
+  - Both updates occur within the same DB transaction as the payment insert.
+
 
 **GET /payments/trip/{tripId}** 🔴
 ```json

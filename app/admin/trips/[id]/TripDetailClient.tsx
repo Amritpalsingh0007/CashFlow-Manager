@@ -301,7 +301,6 @@ function StatusModal({ trip, onClose, onSaved }: {
   const [actualWeight, setAW]   = useState(trip.actualWeight?.toString() ?? '')
   const [shortage, setShortage] = useState(trip.shortagePenalty?.toString() ?? '0')
   const [endDate, setEnd]       = useState(trip.endDate ?? '')
-  const [received, setReceived] = useState(trip.paymentReceived)
   const [saving, setSaving]     = useState(false)
 
   async function submit(e: React.FormEvent) {
@@ -312,7 +311,6 @@ function StatusModal({ trip, onClose, onSaved }: {
       actualWeight:    actualWeight ? Number(actualWeight) : undefined,
       shortagePenalty: Number(shortage),
       endDate:         endDate || undefined,
-      paymentReceived: received,
     })
     setSaving(false)
     onSaved()
@@ -331,10 +329,9 @@ function StatusModal({ trip, onClose, onSaved }: {
             onChange={(e) => setShortage(e.target.value)} />
         </div>
         <Input label="End Date" type="date" value={endDate} onChange={(e) => setEnd(e.target.value)} />
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-          <input type="checkbox" checked={received} onChange={(e) => setReceived(e.target.checked)} />
-          Mark payment received
-        </label>
+        <p style={{ fontSize: 12, color: 'var(--color-mute)' }}>
+          Payment status is set automatically when a final payment is recorded.
+        </p>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
           <Button variant="ghost" type="button" onClick={onClose}>Cancel</Button>
           <Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>

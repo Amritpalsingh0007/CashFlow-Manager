@@ -1,0 +1,21 @@
+{
+  "name": "Brook — Cashflow Manager",
+  "short_name": "Brook",
+  "description": "Separate business and personal finances for your transport business.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0a6640",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

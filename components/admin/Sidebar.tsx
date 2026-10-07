@@ -9,7 +9,10 @@ const NAV = [
   { href: '/admin/dashboard', label: 'Dashboard',   icon: '⊞' },
   { href: '/admin/trips',     label: 'Trips',        icon: '🚛' },
   { href: '/admin/expenses',  label: 'Expenses',     icon: '₹'  },
+  { href: '/admin/reports',   label: 'Reports',      icon: '📊' },
+  { href: '/admin/truck',     label: 'Truck',        icon: '🚚' },
   { href: '/admin/users',     label: 'Users',        icon: '👤' },
+  { href: '/admin/docs',      label: 'API Docs',     icon: '📚' },
 ]
 
 function NavLinks() {

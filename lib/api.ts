@@ -260,3 +260,29 @@ export async function createOrgUser(body: {
     body: JSON.stringify(body),
   })
 }
+
+// ─── Truck ────────────────────────────────────────────────────────────────
+
+export interface Truck {
+  id: string
+  regNumber: string
+  model?: string
+}
+
+export async function getTruck(): Promise<Truck | null> {
+  try {
+    return apiFetch<Truck>('/organisation/truck')
+  } catch (err) {
+    return null
+  }
+}
+
+export async function updateTruck(body: Partial<{ regNumber: string; model: string }>): Promise<Truck> {
+  // This is a bit hacky but we need the truck ID first
+  const truck = await getTruck()
+  if (!truck) throw new Error('Truck not found')
+  return apiFetch<Truck>(`/organisation/truck/${truck.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  })
+}

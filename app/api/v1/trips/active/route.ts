@@ -18,14 +18,10 @@ export async function GET(request: NextRequest) {
 
     return Response.json(rows.map((r) => ({
       id:              r.id,
-      brokerName:      r.broker_name,
-      ratePerTon:      fromDb(r.rate_per_ton as number),
-      agreedWeight:    fromDb(r.agreed_weight as number),
-      actualWeight:    r.actual_weight != null ? fromDb(r.actual_weight as number) : null,
-      status:          r.status,
+      brokerName:      r.broker_name ?? 'IN_BETWEEN',
       startDate:       r.start_date,
-      endDate:         r.end_date ?? null,
-      paymentReceived: Boolean(r.payment_received),
+      status:          r.status,
+      tripType:        r.trip_type,
     })))
   } catch (err) {
     return authErrorResponse(err)

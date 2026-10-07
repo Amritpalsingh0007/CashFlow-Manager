@@ -17,6 +17,18 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: 'Brook — Cashflow Manager',
   description: 'Separate business and personal finances for your transport business.',
+  icons: [
+    {
+      url: '/icons/icon-192.png',
+      sizes: '192x192',
+      type: 'image/png'
+    },
+    {
+      url: '/icons/icon-512.png',
+      sizes: '512x512',
+      type: 'image/png'
+    }
+  ]
 }
 
 export default function RootLayout({ children }: LayoutProps<'/'>) {
