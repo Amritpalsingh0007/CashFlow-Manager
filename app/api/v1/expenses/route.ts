@@ -67,6 +67,11 @@ export async function POST(request: NextRequest) {
       return Response.json({ message: 'amount, category, and expenseDate are required' }, { status: 400 })
     }
 
+    // Validate that business expenses must have a tripId
+    if (BUSINESS_CATS.has(body.category) && (!body.tripId || body.tripId.trim() === '')) {
+      return Response.json({ message: 'tripId is required for business expenses' }, { status: 400 })
+    }
+
     const id = newId()
     db.prepare(`
       INSERT INTO expense (id, org_id, trip_id, amount, category, expense_date, notes, created_by, updated_by, created_at, updated_at)

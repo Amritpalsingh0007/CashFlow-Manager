@@ -14,10 +14,18 @@ async function refreshAccessToken(): Promise<string | null> {
       method: 'POST',
       credentials: 'include', // sends the HttpOnly refresh cookie
     })
-    if (!res.ok) {
+
+    // If we get a 401, the refresh token is invalid/unavailable, so clear auth state
+    if (res.status === 401) {
       clearAuth()
       return null
     }
+
+    // For other non-2xx statuses, don't clear auth state (might be transient server error)
+    if (!res.ok) {
+      return null
+    }
+
     const data = await res.json()
     const current = getAuth()
     if (current) {
@@ -25,7 +33,8 @@ async function refreshAccessToken(): Promise<string | null> {
     }
     return data.accessToken as string
   } catch {
-    clearAuth()
+    // For network errors or JSON parsing errors, don't clear auth state
+    // as these are likely transient issues
     return null
   }
 }
@@ -166,6 +175,10 @@ export async function getTrip(id: string): Promise<TripDetail> {
   return apiFetch<TripDetail>(`/trips/${id}`)
 }
 
+export async function getExpense(id: string): Promise<Expense> {
+  return apiFetch<Expense>(`/expenses/${id}`)
+}
+
 export async function createTrip(body: Partial<Trip>): Promise<Trip> {
   return apiFetch<Trip>('/trips', { method: 'POST', body: JSON.stringify(body) })
 }
@@ -225,14 +238,37 @@ export interface Payment {
   amount: number
   type: 'ADVANCE' | 'FINAL'
   receivedDate: string
+  createdBy?: string
 }
 
 export async function getTripPayments(tripId: string): Promise<Payment[]> {
   return apiFetch<Payment[]>(`/payments/trip/${tripId}`)
 }
 
+export async function getPayment(id: string): Promise<Payment> {
+  return apiFetch<Payment>(`/payments/${id}`)
+}
+
+export async function getPayments(params?: {
+  page?: number
+  size?: number
+  startDate?: string
+  endDate?: string
+}): Promise<Page<Payment>> {
+  const q = new URLSearchParams()
+  if (params?.page !== undefined) q.set('page', String(params.page))
+  if (params?.size !== undefined) q.set('size', String(params.size))
+  if (params?.startDate) q.set('startDate', params.startDate)
+  if (params?.endDate) q.set('endDate', params.endDate)
+  return apiFetch<Page<Payment>>(`/payments?${q}`)
+}
+
 export async function createPayment(body: Partial<Payment>): Promise<Payment> {
   return apiFetch<Payment>('/payments', { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function patchPayment(id: string, body: Partial<Payment>): Promise<Payment> {
+  return apiFetch<Payment>(`/payments/${id}`, { method: 'PATCH', body: JSON.stringify(body) })
 }
 
 // ─── Organisation ─────────────────────────────────────────────────────────────
@@ -269,19 +305,23 @@ export interface Truck {
   model?: string
 }
 
-export async function getTruck(): Promise<Truck | null> {
+export async function getTruck(): Promise<Truck[]> {
   try {
-    return apiFetch<Truck>('/organisation/truck')
+    return apiFetch<Truck[]>('/organisation/truck')
   } catch (err) {
-    return null
+    return []
   }
 }
 
-export async function updateTruck(body: Partial<{ regNumber: string; model: string }>): Promise<Truck> {
-  // This is a bit hacky but we need the truck ID first
-  const truck = await getTruck()
-  if (!truck) throw new Error('Truck not found')
-  return apiFetch<Truck>(`/organisation/truck/${truck.id}`, {
+export async function createTruck(body: { regNumber: string; model?: string }): Promise<Truck> {
+  return apiFetch<Truck>('/organisation/truck', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  })
+}
+
+export async function updateTruck(id: string, body: Partial<{ regNumber: string; model: string }>): Promise<Truck> {
+  return apiFetch<Truck>(`/organisation/truck/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(body),
   })

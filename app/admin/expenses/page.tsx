@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { getExpenses, createExpense, type Expense } from '@/lib/api'
+import { getExpenses, createExpense, type Expense, getActiveTrips, type Trip } from '@/lib/api'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Input, Select, Textarea } from '@/components/ui/Input'
@@ -139,7 +139,7 @@ export default function ExpensesPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--color-hairline)' }}>
-                {['Date', 'Category', 'Amount', 'Notes', 'Added by'].map((h) => (
+                {['Date', 'Category', 'Amount', 'Notes', 'Added by', 'Actions'].map((h) => (
                   <th
                     key={h}
                     style={{
@@ -166,6 +166,15 @@ export default function ExpensesPage() {
                     {e.notes || '—'}
                   </td>
                   <td style={{ padding: '11px 16px', color: 'var(--color-mute)' }}>{e.createdBy}</td>
+                  <td style={{ padding: '11px 16px' }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.location.href = `/admin/expenses/${e.id}/edit`}
+                    >
+                      Edit
+                    </Button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -190,17 +199,41 @@ function AddExpenseModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
   const [notes, setNotes]   = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
+  const [tripId, setTripId] = useState<string | null>(null)
+  const [trips, setTrips]   = useState<Trip[]>([])
+
+  // Fetch active trips when category changes to a business category
+  useEffect(() => {
+    const isBusiness = !(PERSONAL_CATS.includes(cat))
+    if (isBusiness) {
+      getActiveTrips().then((data) => {
+        setTrips(data)
+      }).catch(() => {
+        setTrips([])
+      })
+    } else {
+      setTrips([])
+      setTripId(null)
+    }
+  }, [cat])
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     setSaving(true)
     try {
+      const isBusiness = !(PERSONAL_CATS.includes(cat))
+      if (isBusiness && !tripId) {
+        setError('Please select a trip for business expenses')
+        setSaving(false)
+        return
+      }
       await createExpense({
         amount: Number(amount),
         category: cat,
         expenseDate: date,
         notes,
+        tripId: isBusiness ? tripId : undefined,
       })
       onSaved()
     } catch (err: unknown) {
@@ -260,6 +293,18 @@ function AddExpenseModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
             label="Date" type="date" required
             value={date} onChange={(e) => setDate(e.target.value)}
           />
+          {!(PERSONAL_CATS.includes(cat)) && (
+            <>
+              <Select label="Trip" value={tripId ?? ''} onChange={(e) => setTripId(e.target.value || null)}>
+                <option value="">Select a trip</option>
+                {trips.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.brokerName} ({t.startDate} to {t.endDate ?? 'ongoing'})
+                  </option>
+                ))}
+              </Select>
+            </>
+          )}
           <Textarea
             label="Notes (optional)"
             value={notes} onChange={(e) => setNotes(e.target.value)}

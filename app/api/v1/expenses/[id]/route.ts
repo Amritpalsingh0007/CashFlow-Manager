@@ -2,6 +2,8 @@ import { type NextRequest } from 'next/server'
 import { db, toDb, fromDb } from '@/lib/db'
 import { requireAuth, requireRole, authErrorResponse } from '@/lib/apiAuth'
 
+const BUSINESS_CATS = new Set(['FUEL','TOLL','CLEANING','OTHER_TRIP','MAINTENANCE','TYRE','BREAKDOWN','TAX','FASTAG','OTHER_TRUCK'])
+
 export async function GET(
   request: NextRequest,
   ctx: RouteContext<'/api/v1/expenses/[id]'>
@@ -26,12 +28,37 @@ export async function PATCH(
     const { id } = await ctx.params
     const user   = await requireRole(request, 'ADMIN')
     const body   = await request.json()
+
+    // Fetch existing expense for validation
+    const existing = db.prepare(`
+      SELECT * FROM expense WHERE id = ?
+    `).get(id) as Record<string, unknown> | undefined
+    if (!existing) {
+      return Response.json({ message: 'Not found' }, { status: 404 })
+    }
+
     const profile = db.prepare('SELECT id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string }
+
+    // Determine the state after update for category and tripId
+    const categoryAfterUpdate = body.category !== undefined ? body.category : existing.category;
+    let tripIdAfterUpdate;
+    if (body.tripId !== undefined) {
+      // If body.tripId is empty string, we treat it as null (since we allow null in DB)
+      tripIdAfterUpdate = body.tripId === '' ? null : body.tripId;
+    } else {
+      tripIdAfterUpdate = existing.tripId;
+    }
+
+    // Validate that business expenses must have a tripId
+    if (BUSINESS_CATS.has(categoryAfterUpdate) && (!tripIdAfterUpdate || tripIdAfterUpdate.toString().trim() === '')) {
+      return Response.json({ message: 'tripId is required for business expenses' }, { status: 400 });
+    }
+
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString(), updated_by: profile.id }
     if (body.amount      !== undefined) updates.amount      = toDb(body.amount)
     if (body.category    !== undefined) updates.category    = body.category
     if (body.notes       !== undefined) updates.notes       = body.notes
-    if (body.tripId      !== undefined) updates.trip_id     = body.tripId
+    if (body.tripId      !== undefined) updates.trip_id     = body.tripId === '' ? null : body.tripId
     if (body.expenseDate !== undefined) updates.expense_date = body.expenseDate
     const set = Object.keys(updates).map((k) => `${k} = ?`).join(', ')
     db.prepare(`UPDATE expense SET ${set} WHERE id = ?`).run(...Object.values(updates), id)

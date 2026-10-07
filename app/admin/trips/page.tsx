@@ -68,7 +68,7 @@ export default function TripsPage() {
       ) : (
         <div
           style={{
-            background: 'var(--color-canvas-elevated)',
+            background: 'var(--color-canvas-elevited)',
             border: '1px solid var(--color-hairline)',
             borderRadius: 'var(--rounded-md)',
             overflow: 'hidden',
@@ -77,7 +77,7 @@ export default function TripsPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--color-hairline)' }}>
-                {['Broker', 'Start', 'End', 'Rate/ton', 'Weight', 'Status', 'Payment'].map((h) => (
+                {['Broker', 'Start', 'End', 'Rate/ton', 'Weight', 'Status', 'Payment', 'Actions'].map((h) => (
                   <th
                     key={h}
                     style={{
@@ -135,6 +135,16 @@ export default function TripsPage() {
                     >
                       {t.paymentReceived ? '✓ Received' : 'Pending'}
                     </span>
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => window.location.href = `/admin/trips/${t.id}/edit`
+                    }
+                    >
+                      Edit
+                    </Button>
                   </td>
                 </tr>
               ))}
