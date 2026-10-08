@@ -1,5 +1,4 @@
 import type { NextConfig } from 'next'
-import withSerwistInit from '@serwist/next'
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
@@ -27,21 +26,4 @@ const nextConfig: NextConfig = {
   },
 }
 
-// Configure Serwist for PWA (only in production)
-const withSerwistConfig = withSerwistInit({
-  swSrc: 'app/sw.ts',
-  swDest: 'public/sw.js',
-  reloadOnOnline: true,
-  // Note: offlinePage is handled via route, not precacheEntries
-  precacheEntries: [
-    { url: '/', revision: '1' },
-    { url: '/manifest.json', revision: '1' },
-    { url: '/icons/icon-192.png', revision: '1' },
-    { url: '/icons/icon-512.png', revision: '1' }
-  ],
-  skipWaiting: true,
-  clientsClaim: true,
-  disable: process.env.NODE_ENV !== 'production',
-})
-
-export default withSerwistConfig(nextConfig)
+export default nextConfig

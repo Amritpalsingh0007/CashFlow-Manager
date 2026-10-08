@@ -165,7 +165,7 @@ export default function ExpensesPage() {
                   <td style={{ padding: '11px 16px', color: 'var(--color-mute)', maxWidth: 220 }}>
                     {e.notes || '—'}
                   </td>
-                  <td style={{ padding: '11px 16px', color: 'var(--color-mute)' }}>{e.createdBy}</td>
+                  <td style={{ padding: '11px 16px', color: 'var(--color-mute)' }}>{e.createdBy ?? '-'}</td>
                   <td style={{ padding: '11px 16px' }}>
                     <Button
                       variant="ghost"
@@ -233,7 +233,7 @@ function AddExpenseModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
         category: cat,
         expenseDate: date,
         notes,
-        tripId: isBusiness ? tripId : undefined,
+        tripId: isBusiness ? tripId! : undefined,
       })
       onSaved()
     } catch (err: unknown) {

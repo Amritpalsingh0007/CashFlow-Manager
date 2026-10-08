@@ -18,7 +18,7 @@ export async function GET(
 
     // Ensure org_id column exists in payment table
     const tableInfo = db.prepare("PRAGMA table_info(payment)").all()
-    const hasOrgId = tableInfo.some((col: {name: string}) => col.name === 'org_id')
+    const hasOrgId = tableInfo.some((col) => (col as {name: string}).name === 'org_id')
     if (!hasOrgId) {
       db.prepare('ALTER TABLE payment ADD COLUMN org_id STRING').run()
     }
@@ -61,7 +61,7 @@ export async function PATCH(
 
     // Ensure org_id column exists in payment table
     const tableInfo = db.prepare("PRAGMA table_info(payment)").all()
-    const hasOrgId = tableInfo.some((col: {name: string}) => col.name === 'org_id')
+    const hasOrgId = tableInfo.some((col) => (col as {name: string}).name === 'org_id')
     if (!hasOrgId) {
       db.prepare('ALTER TABLE payment ADD COLUMN org_id STRING').run()
     }
@@ -121,7 +121,7 @@ export async function DELETE(
 
     // Ensure org_id column exists in payment table
     const tableInfo = db.prepare("PRAGMA table_info(payment)").all()
-    const hasOrgId = tableInfo.some((col: {name: string}) => col.name === 'org_id')
+    const hasOrgId = tableInfo.some((col) => (col as {name: string}).name === 'org_id')
     if (!hasOrgId) {
       db.prepare('ALTER TABLE payment ADD COLUMN org_id STRING').run()
     }
