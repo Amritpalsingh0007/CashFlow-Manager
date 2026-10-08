@@ -18,6 +18,8 @@ const CATEGORIES = [
   'HOUSEHOLD', 'GROCERY', 'MEDICAL', 'OTHER_PERSONAL',
 ]
 
+const PERSONAL_CATS = ['HOUSEHOLD', 'GROCERY', 'MEDICAL', 'OTHER_PERSONAL']
+
 export default function EditExpensePage() {
   const { id } = useParams<{ id: string }>()
   const [expense, setExpense] = useState<Expense | null>(null)
@@ -97,7 +99,7 @@ export default function EditExpensePage() {
         category: category as any,
         expenseDate,
         notes,
-        tripId: isBusiness ? tripId : undefined,
+        tripId: isBusiness ? (tripId ?? undefined) : undefined,
       })
       window.location.href = '/admin/expenses'
     } catch (err: any) {
