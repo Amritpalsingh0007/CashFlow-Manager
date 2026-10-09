@@ -34,5 +34,5 @@ export function authErrorResponse(err: unknown): Response {
   if (err instanceof AuthError) {
     return Response.json({ message: err.message }, { status: err.status })
   }
-  return Response.json({ message: 'Internal Server Error' }, { status: 500 })
+  return Response.json({ message: 'Internal Server Error' + err }, { status: 500 })
 }
