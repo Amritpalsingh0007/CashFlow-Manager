@@ -16,13 +16,6 @@ export async function GET(
       return Response.json({ message: 'Payment ID is required' }, { status: 400 })
     }
 
-    // Ensure org_id column exists in payment table
-    const tableInfo = db.prepare("PRAGMA table_info(payment)").all()
-    const hasOrgId = tableInfo.some((col) => (col as {name: string}).name === 'org_id')
-    if (!hasOrgId) {
-      db.prepare('ALTER TABLE payment ADD COLUMN org_id STRING').run()
-    }
-
     const row = db.prepare(`
       SELECT p.*, cre.name as created_by_name FROM payment p
       LEFT JOIN profile cre ON cre.id = p.created_by
@@ -57,13 +50,6 @@ export async function PATCH(
 
     if (!body.tripId || !body.amount || !body.type || !body.receivedDate) {
       return Response.json({ message: 'tripId, amount, type, and receivedDate are required' }, { status: 400 })
-    }
-
-    // Ensure org_id column exists in payment table
-    const tableInfo = db.prepare("PRAGMA table_info(payment)").all()
-    const hasOrgId = tableInfo.some((col) => (col as {name: string}).name === 'org_id')
-    if (!hasOrgId) {
-      db.prepare('ALTER TABLE payment ADD COLUMN org_id STRING').run()
     }
 
     const profile = db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }

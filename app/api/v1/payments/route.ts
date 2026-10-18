@@ -1,5 +1,5 @@
 import { type NextRequest } from 'next/server'
-import { db, newId, toDb, fromDb } from '@/lib/db'
+import { db, newId, toDb, fromDb, sqlNow } from '@/lib/db'
 import { requireRole, authErrorResponse } from '@/lib/apiAuth'
 
 export async function GET(request: NextRequest) {
@@ -7,12 +7,7 @@ export async function GET(request: NextRequest) {
     const user    = await requireRole(request, 'ADMIN')
     const profile = db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
 
-    // Ensure org_id column exists in payment table
-    const tableInfo = db.prepare("PRAGMA table_info(payment)").all()
-    const hasOrgId = tableInfo.some((col) => (col as { name: string }).name === 'org_id')
-    if (!hasOrgId) {
-      db.prepare('ALTER TABLE payment ADD COLUMN org_id STRING').run()
-    }
+    // org_id column is now in the schema; this block removed (was SQLite-only PRAGMA)
 
     const sp      = request.nextUrl.searchParams
     const page    = Math.max(0, Number(sp.get('page') ?? 0))
@@ -58,13 +53,6 @@ export async function POST(request: NextRequest) {
     const profile = db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
     const body    = await request.json()
 
-    // Ensure org_id column exists in payment table
-    const tableInfo = db.prepare("PRAGMA table_info(payment)").all()
-    const hasOrgId = tableInfo.some((col) => (col as { name: string }).name === 'org_id')
-    if (!hasOrgId) {
-      db.prepare('ALTER TABLE payment ADD COLUMN org_id STRING').run()
-    }
-
     if (!body.tripId || !body.amount || !body.type || !body.receivedDate) {
       return Response.json({ message: 'tripId, amount, type, and receivedDate are required' }, { status: 400 })
     }
@@ -72,7 +60,7 @@ export async function POST(request: NextRequest) {
     const id = newId()
     db.prepare(`
       INSERT INTO payment (id, trip_id, amount, type, received_date, org_id, created_by, created_at)
-      VALUES (?,?,?,?,?,?,?,datetime('now'))
+      VALUES (?,?,?,?,?,?,?,${sqlNow()})
     `).run(id, body.tripId, toDb(body.amount), body.type, body.receivedDate, profile.org_id, profile.id)
 
     const row = db.prepare(`
@@ -106,13 +94,6 @@ export async function PATCH(request: NextRequest) {
     }
 
     const body = await request.json()
-
-    // Ensure org_id column exists in payment table
-    const tableInfo = db.prepare("PRAGMA table_info(payment)").all()
-    const hasOrgId = tableInfo.some((col) => (col as { name: string }).name === 'org_id')
-    if (!hasOrgId) {
-      db.prepare('ALTER TABLE payment ADD COLUMN org_id STRING').run()
-    }
 
     if (!body.tripId || !body.amount || !body.type || !body.receivedDate) {
       return Response.json({ message: 'tripId, amount, type, and receivedDate are required' }, { status: 400 })

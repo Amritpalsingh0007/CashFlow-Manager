@@ -1,5 +1,5 @@
 import { type NextRequest } from 'next/server'
-import { db, toDb, fromDb } from '@/lib/db'
+import { db, toDb, fromDb, sqlNow } from '@/lib/db'
 import { requireRole, authErrorResponse } from '@/lib/apiAuth'
 
 function tripDetailFromRows(trip: Record<string, unknown>, payments: Record<string, unknown>[], expenses: Record<string, unknown>[]) {
@@ -112,9 +112,10 @@ export async function PATCH(
       const ibExists = db.prepare('SELECT id FROM trip WHERE id = ?').get(ibId)
       if (!ibExists) {
         db.prepare(`
-          INSERT OR IGNORE INTO trip (id, org_id, truck_id, trip_type, broker_name, rate_per_ton, agreed_weight,
+          INSERT INTO trip (id, org_id, truck_id, trip_type, broker_name, rate_per_ton, agreed_weight,
             brokerage_pct, status, start_date, created_by, updated_by, created_at, updated_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,${sqlNow()},${sqlNow()})
+          ON CONFLICT (id) DO NOTHING
         `).run(ibId, tripRow.org_id, tripRow.truck_id, 'IN_BETWEEN', 'IN_BETWEEN', 0, 0, 0, 'IN_TRANSIT', new Date().toISOString().slice(0, 10), profile.id, profile.id)
       }
     }

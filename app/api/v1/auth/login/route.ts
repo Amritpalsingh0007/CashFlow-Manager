@@ -1,6 +1,6 @@
 import { type NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { db, newId } from '@/lib/db'
+import { db, newId, sqlNow } from '@/lib/db'
 import { signAccessToken, signRefreshToken } from '@/lib/jwt'
 
 export async function POST(request: NextRequest) {
@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     // Store refresh token
     db.prepare(`
       INSERT INTO refresh_token (id, auth_user_id, token, expiry, created_at)
-      VALUES (?, ?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, ?, ${sqlNow()})
     `).run(refreshId, row.id, refreshToken, expiry)
 
     const res = Response.json({ accessToken, role: row.role, name: row.name })

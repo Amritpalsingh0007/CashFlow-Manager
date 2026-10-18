@@ -1,5 +1,5 @@
 import { type NextRequest } from 'next/server'
-import { db, newId, toDb, fromDb } from '@/lib/db'
+import { db, newId, toDb, fromDb, sqlNow } from '@/lib/db'
 import { requireAuth, authErrorResponse } from '@/lib/apiAuth'
 
 const BUSINESS_CATS = new Set(['FUEL','TOLL','CLEANING','OTHER_TRIP','MAINTENANCE','TYRE','BREAKDOWN','TAX','FASTAG','OTHER_TRUCK'])
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     const id = newId()
     db.prepare(`
       INSERT INTO expense (id, org_id, trip_id, amount, category, expense_date, notes, created_by, updated_by, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
+      VALUES (?,?,?,?,?,?,?,?,?,${sqlNow()},${sqlNow()})
     `).run(id, profile.org_id, body.tripId ?? null, toDb(body.amount), body.category, body.expenseDate, body.notes ?? '', profile.id, profile.id)
 
     const row = db.prepare(`

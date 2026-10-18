@@ -1,5 +1,5 @@
 import { type NextRequest } from 'next/server'
-import { db, newId } from '@/lib/db'
+import { db, newId, sqlNow } from '@/lib/db'
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '@/lib/jwt'
 
 export async function POST(request: NextRequest) {
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     db.prepare(`
       INSERT INTO refresh_token (id, auth_user_id, token, expiry, created_at)
-      VALUES (?, ?, ?, ?, datetime('now'))
+      VALUES (?, ?, ?, ?, ${sqlNow()})
     `).run(newRefreshId, row.id, newRefreshToken, expiry)
 
     const accessToken = await signAccessToken({ sub: row.id, role: row.role, name: row.name })

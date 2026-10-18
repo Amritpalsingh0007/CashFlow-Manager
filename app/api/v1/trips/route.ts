@@ -1,5 +1,5 @@
 import { type NextRequest } from 'next/server'
-import { db, newId, toDb, fromDb } from '@/lib/db'
+import { db, newId, toDb, fromDb, sqlNow } from '@/lib/db'
 import { requireRole, authErrorResponse } from '@/lib/apiAuth'
 
 function tripFromRow(r: Record<string, unknown>) {
@@ -77,13 +77,13 @@ export async function POST(request: NextRequest) {
     const truck = db.prepare('SELECT id FROM truck WHERE org_id = ? LIMIT 1').get(profile.org_id) as { id: string }
 
     // Close any open IN_BETWEEN trip when creating a new REVENUE trip
-    db.prepare(`UPDATE trip SET status = 'COMPLETED', updated_at = datetime('now') WHERE org_id = ? AND trip_type = 'IN_BETWEEN' AND status NOT IN ('COMPLETED')`).run(profile.org_id)
+    db.prepare(`UPDATE trip SET status = 'COMPLETED', updated_at = ${sqlNow()} WHERE org_id = ? AND trip_type = 'IN_BETWEEN' AND status NOT IN ('COMPLETED')`).run(profile.org_id)
 
     const id = newId()
     db.prepare(`
       INSERT INTO trip (id, org_id, truck_id, trip_type, broker_name, rate_per_ton, agreed_weight,
         brokerage_pct, status, start_date, created_by, updated_by, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,${sqlNow()},${sqlNow()})
     `).run(
       id, profile.org_id,
       body.truckId ?? truck.id,
