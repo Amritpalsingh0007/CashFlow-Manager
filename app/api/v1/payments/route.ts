@@ -5,7 +5,7 @@ import { requireRole, authErrorResponse } from '@/lib/apiAuth'
 export async function GET(request: NextRequest) {
   try {
     const user    = await requireRole(request, 'ADMIN')
-    const profile = db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
+    const profile = await db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
 
     // org_id column is now in the schema; this block removed (was SQLite-only PRAGMA)
 
@@ -21,14 +21,14 @@ export async function GET(request: NextRequest) {
     if (start) { where += ' AND p.received_date >= ?'; params.push(start) }
     if (end)   { where += ' AND p.received_date <= ?'; params.push(end)   }
 
-    const total = (db.prepare(`SELECT COUNT(*) as n FROM payment ${where}`).get(...params) as { n: number }).n
-    const rows  = db.prepare(`
+    const total = ((await db.prepare(`SELECT COUNT(*) as n FROM payment ${where}`).get(...params)) as { n: number }).n
+    const rows  = (await db.prepare(`
       SELECT p.*, cre.name as created_by_name FROM payment p
       LEFT JOIN profile cre ON cre.id = p.created_by
       ${where}
       ORDER BY p.received_date DESC
       LIMIT ? OFFSET ?
-    `).all(...params, size, page * size) as Record<string, unknown>[]
+    `).all(...params, size, page * size)) as Record<string, unknown>[]
 
     return Response.json({
       content: rows.map((r) => ({
@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const user    = await requireRole(request, 'ADMIN')
-    const profile = db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
+    const profile = await db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
     const body    = await request.json()
 
     if (!body.tripId || !body.amount || !body.type || !body.receivedDate) {
@@ -58,12 +58,12 @@ export async function POST(request: NextRequest) {
     }
 
     const id = newId()
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO payment (id, trip_id, amount, type, received_date, org_id, created_by, created_at)
       VALUES (?,?,?,?,?,?,?,${sqlNow()})
     `).run(id, body.tripId, toDb(body.amount), body.type, body.receivedDate, profile.org_id, profile.id)
 
-    const row = db.prepare(`
+    const row = await db.prepare(`
       SELECT p.*, cre.name as created_by_name FROM payment p
       LEFT JOIN profile cre ON cre.id = p.created_by WHERE p.id = ?
     `).get(id) as Record<string, unknown>
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const user    = await requireRole(request, 'ADMIN')
-    const profile = db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
+    const profile = await db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
     const { searchParams } = request.nextUrl
     const id = searchParams.get('id')
 
@@ -99,13 +99,13 @@ export async function PATCH(request: NextRequest) {
       return Response.json({ message: 'tripId, amount, type, and receivedDate are required' }, { status: 400 })
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE payment
       SET trip_id = ?, amount = ?, type = ?, received_date = ?, org_id = ?
       WHERE id = ?
     `).run(body.tripId, toDb(body.amount), body.type, body.receivedDate, profile.org_id, paymentId)
 
-    const row = db.prepare(`
+    const row = await db.prepare(`
       SELECT p.*, cre.name as created_by_name FROM payment p
       LEFT JOIN profile cre ON cre.id = p.created_by WHERE p.id = ?
     `).get(paymentId) as Record<string, unknown>

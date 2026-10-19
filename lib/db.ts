@@ -1,147 +1,142 @@
 /**
  * Dual database layer:
- * - Development: SQLite via better-sqlite3 (sync)
- * - Production: Neon Postgres via @neondatabase/serverless (async)
+ * - Development : SQLite via better-sqlite3 (sync)
+ * - Production  : Neon Postgres via @neondatabase/serverless (async)
  *
- * The API mirrors the original better-sqlite3 shape:
- *   db.prepare(sql).get(values?)
- *   db.prepare(sql).all(values?)
- *   db.prepare(sql).run(values?)
+ * Both expose the same async interface:
+ *   await db.prepare(sql).get(...values)
+ *   await db.prepare(sql).all(...values)
+ *   await db.prepare(sql).run(...values)
  *
- * In prod, each call is async under the hood but the shim presents a
- * sync-looking API that works inside async route handlers.
+ * In development, the methods are async but they wrap synchronous calls.
+ * In production, they are truly async.
  *
- * All money values stored as INTEGER cents to avoid float precision issues.
- * We convert to/from decimal at the boundary (toDb / fromDb helpers).
+ * All money values stored as INTEGER (cents × 100) to avoid float errors.
+ * Convert at the boundary with toDb / fromDb helpers.
  */
 
-import { neon } from '@neondatabase/serverless'
-import { Pool } from '@neondatabase/serverless'
-import Database from 'better-sqlite3'
-import path from 'path'
-import fs from 'fs'
+const IS_PROD = process.env.NODE_ENV === 'production'
+
+// ─── Dialect helpers ──────────────────────────────────────────────────────────
+
+/** Returns the SQL fragment for the current timestamp in the active dialect. */
+export function sqlNow(): string {
+  return IS_PROD ? 'NOW()' : "datetime('now')"
+}
+
+// ─── Shared types ─────────────────────────────────────────────────────────────
+
+interface Statement {
+  get(...values: unknown[]): Promise<unknown | undefined>
+  all(...values: unknown[]): Promise<unknown[]>
+  run(...values: unknown[]): Promise<{ changes: number; lastInsertRowid?: unknown }>
+}
+
+interface DbClient {
+  prepare(sql: string): Statement
+}
+
+// ─── Production: Neon Postgres ───────────────────────────────────────────────
+
+function buildNeonClient(): DbClient {
+  // Lazy require so the module is never loaded in dev (avoids error if missing)
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { neon } = require('@neondatabase/serverless') as typeof import('@neondatabase/serverless')
+
+  if (!process.env.DATABASE_URL) {
+    throw new Error('[brook] DATABASE_URL must be set in production')
+  }
+
+  const sql = neon(process.env.DATABASE_URL)
+
+  /**
+   * Convert SQLite-style positional ? placeholders to Postgres $1, $2, ...
+   */
+  function toPostgres(sqlText: string): string {
+    let n = 0
+    return sqlText.replace(/\?/g, () => `$${++n}`)
+  }
+
+  return {
+    prepare(sqlText: string): Statement {
+      const pgSql = toPostgres(sqlText)
+
+      return {
+        async get(...values: unknown[]): Promise<unknown | undefined> {
+          const rows = await (sql as any)(pgSql, values)
+          return rows[0] ?? undefined
+        },
+        async all(...values: unknown[]): Promise<unknown[]> {
+          const rows = await (sql as any)(pgSql, values)
+          return rows
+        },
+        async run(...values: unknown[]): Promise<{ changes: number }> {
+          const result = await (sql as any)(pgSql, values) as any
+          return { changes: result.rowCount ?? result.length ?? 0 }
+        },
+      }
+    },
+  }
+}
+
+// ─── Development: SQLite (better-sqlite3) ────────────────────────────────────
 
 declare global {
   // eslint-disable-next-line no-var
-  var __brookDbDev: Database.Database | undefined
+  var __brookDb: import('better-sqlite3').Database | undefined
 }
 
-// Helper: returns appropriate NOW() string for current dialect
-export const sqlNow = () =>
-  process.env.NODE_ENV === 'production' ? \"NOW()\" : \"datetime('now')\"
+function buildSqliteClient(): DbClient {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const Database = require('better-sqlite3') as typeof import('better-sqlite3')
+  const path = require('path') as typeof import('path')
 
-// ─── DEV: SQLite (better-sqlite3) ───────────────────────────────────────
-if (process.env.NODE_ENV !== 'production') {
   const DB_PATH = process.env.DB_PATH ?? path.join(process.cwd(), 'brook.db')
 
-  // Singleton for dev — Next.js HMR may reload module multiple times
-  function openDevDb(): Database.Database {
-    if (globalThis.__brookDbDev) return globalThis.__brookDbDev
+  // Singleton — Next.js HMR may import this module multiple times
+  if (!globalThis.__brookDb) {
     const db = new Database(DB_PATH)
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
-    migrate(db)
-    seed(db)
-    globalThis.__brookDbDev = db
-    return db
+    migrateSqlite(db)
+    seedSqlite(db)
+    globalThis.__brookDb = db
   }
 
-  // Export dev db as-is (better-sqlite3 instance)
-  export const db = openDevDb()
-} else {
-  // ─── PROD: Neon Postgres ─────────────────────────────────────────────
-  // Create a connection pool (neon/http driver under the hood)
-  // Uses DATABASE_URL env var (pooled connection)
-  const sql = neon(process.env.DATABASE_URL!)
-
-  /**
-   * Thin compatibility shim that makes Neon look like better-sqlite3
-   * for the limited API surface we use: prepare().{get,all,run}
-   */
-  class NeonCompat {
-    private readonly sqlFn: typeof sql
-
-    constructor(sqlFn: typeof sql) {
-      this.sqlFn = sqlFn
-    }
-
-    /**
-     * Parse a SQL string and return a Statement-like object
-     * with .get, .all, .run methods.
-     */
-    prepare(sqlText: string) {
-      // Extract parameter placeholders ($1, $2, ...) vs SQLite (?)
-      // Convert SQLite-style ? params to Postgres $1, $2, ...
-      const postgresSql = sqlText.replace(/\?/g, (match, offset) => {
-        // Count number of ? before this one to determine parameter index
-        const before = sqlText.substring(0, offset)
-        const numPlaceholders = (before.match(/\?/g) || []).length
-        return `$${numPlaceholders + 1}`
-      })
-
-      // Return an object mimicking the Statement interface
+  // Wrap in our interface (make the sync methods async)
+  const raw = globalThis.__brookDb!
+  return {
+    prepare(sqlText: string): Statement {
+      const stmt = raw.prepare(sqlText)
       return {
-        /**
-         * Execute query and return first row
-         */
-        async get(...params: any[]) {
-          try {
-            // Neon's sql tag function automatically handles parameter escaping
-            const result = await this.sqlFn`${postgresSql}`(...params)
-            // Return first row or undefined if empty
-            return result.length > 0 ? result[0] : undefined
-          } catch (err) {
-            console.error('[db.get] Error:', err, { sql: postgresSql, params })
-            throw err
-          }
+        get: (...values: unknown[]): Promise<unknown | undefined> =>
+          Promise.resolve(stmt.get(...values)),
+        all: (...values: unknown[]): Promise<unknown[]> =>
+          Promise.resolve(stmt.all(...values) as unknown[]),
+        run: (...values: unknown[]): Promise<{ changes: number; lastInsertRowid?: unknown }> => {
+          const result = stmt.run(...values)
+          return Promise.resolve({
+            changes: result.changes,
+            lastInsertRowid: result.lastInsertRowid,
+          })
         },
-
-        /**
-         * Execute query and return all rows
-         */
-        async all(...params: any[]) {
-          try {
-            const result = await this.sqlFn`${postgresSql}`(...params)
-            return result
-          } catch (err) {
-            console.error('[db.all] Error:', err, { sql: postgresSql, params })
-            throw err
-          }
-        },
-
-        /**
-         * Execute query (INSERT/UPDATE/DELETE) and return meta
-         */
-        async run(...params: any[]) {
-          try {
-            const result = await this.sqlFn`${postgresSql}`(...params)
-            // Mimic better-sqlite3 run() return object
-            return {
-              changes: result.rowCount ?? 0,
-              lastInsertRowid: result.rows[0]?.id ?? undefined
-            }
-          } catch (err) {
-            console.error('[db.run] Error:', err, { sql: postgresSql, params })
-            throw err
-          }
-        }
       }
-    }
+    },
   }
-
-  // Create and export the prod compatibility wrapper
-  export const db = new NeonCompat(sql)
 }
 
-// ─── Schema (SQLite dialect - will be adapted in compatibility layer) ─────
-function migrate(db: any) {
-  // Note: In prod, the Neon compatibility layer converts ? to $1, $2, etc.
-  // The raw SQL below uses ? placeholders for SQLite; compatibility layer fixes it.
+// ─── Export the active db client ─────────────────────────────────────────────
+
+export const db: DbClient = IS_PROD ? buildNeonClient() : buildSqliteClient()
+
+// ─── SQLite schema + seed (dev only) ─────────────────────────────────────────
+
+function migrateSqlite(db: import('better-sqlite3').Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS organisation (
       id         TEXT PRIMARY KEY,
       name       TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (${sqlNow()})
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS user_role (
@@ -154,7 +149,7 @@ function migrate(db: any) {
       email        TEXT UNIQUE NOT NULL,
       password     TEXT NOT NULL,
       role_id      TEXT NOT NULL REFERENCES user_role(id),
-      created_at   TEXT NOT NULL DEFAULT (${sqlNow()})
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS profile (
@@ -163,7 +158,7 @@ function migrate(db: any) {
       auth_user_id TEXT NOT NULL REFERENCES auth_user(id),
       name         TEXT NOT NULL,
       phone        TEXT,
-      created_at   TEXT NOT NULL DEFAULT (${sqlNow()})
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS refresh_token (
@@ -171,7 +166,7 @@ function migrate(db: any) {
       auth_user_id TEXT NOT NULL REFERENCES auth_user(id),
       token        TEXT UNIQUE NOT NULL,
       expiry       TEXT NOT NULL,
-      created_at   TEXT NOT NULL DEFAULT (${sqlNow()})
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS truck (
@@ -179,7 +174,7 @@ function migrate(db: any) {
       org_id     TEXT NOT NULL REFERENCES organisation(id),
       reg_number TEXT NOT NULL,
       model      TEXT,
-      created_at TEXT NOT NULL DEFAULT (${sqlNow()})
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS trip (
@@ -199,18 +194,19 @@ function migrate(db: any) {
       payment_received INTEGER NOT NULL DEFAULT 0,
       created_by       TEXT REFERENCES profile(id),
       updated_by       TEXT REFERENCES profile(id),
-      created_at       TEXT NOT NULL DEFAULT (${sqlNow()}),
-      updated_at       TEXT NOT NULL DEFAULT (${sqlNow()})
+      created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS payment (
       id            TEXT PRIMARY KEY,
       trip_id       TEXT NOT NULL REFERENCES trip(id) ON DELETE CASCADE,
+      org_id        TEXT REFERENCES organisation(id),
       amount        INTEGER NOT NULL,
       type          TEXT NOT NULL CHECK(type IN ('ADVANCE','FINAL')),
       received_date TEXT NOT NULL,
       created_by    TEXT REFERENCES profile(id),
-      created_at    TEXT NOT NULL DEFAULT (${sqlNow()})
+      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS expense (
@@ -223,19 +219,17 @@ function migrate(db: any) {
       notes        TEXT NOT NULL DEFAULT '',
       created_by   TEXT REFERENCES profile(id),
       updated_by   TEXT REFERENCES profile(id),
-      created_at   TEXT NOT NULL DEFAULT (${sqlNow()}),
-      updated_at   TEXT NOT NULL DEFAULT (${sqlNow()})
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `)
 }
 
-// ─── Seed ───────────────────────────────────────────────────────────────
-function seed(db: any) {
+function seedSqlite(db: import('better-sqlite3').Database) {
   // Only seed if org doesn't exist yet
   const orgExists = db.prepare('SELECT id FROM organisation WHERE id = ?').get('org-1')
   if (orgExists) return
 
-  // Lazy import bcryptjs here — only runs once at startup
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const bcrypt = require('bcryptjs') as typeof import('bcryptjs')
 
@@ -244,31 +238,31 @@ function seed(db: any) {
   const adminName     = process.env.ADMIN_NAME     ?? 'Raj'
   const orgName       = process.env.ORG_NAME       ?? 'Brook Transport'
   const truckReg      = process.env.TRUCK_REG      ?? 'MH-12-AB-1234'
-  const truckModel    = process.env.TRUCK_MODEL     ?? 'Tata Prima'
+  const truckModel    = process.env.TRUCK_MODEL    ?? 'Tata Prima'
 
   const hashedPassword = bcrypt.hashSync(adminPassword, 10)
   const now = new Date().toISOString()
 
-  db.transaction(() => {
-    db.prepare(`INSERT INTO organisation (id, name, created_at) VALUES (?,?,?)`).run('org-1', orgName, now)
-    db.prepare(`INSERT INTO user_role   (id, role) VALUES (?,?)`).run('role-admin',    'ADMIN')
-    db.prepare(`INSERT INTO user_role   (id, role) VALUES (?,?)`).run('role-business', 'BUSINESS')
-    db.prepare(`INSERT INTO user_role   (id, role) VALUES (?,?)`).run('role-personal', 'PERSONAL')
-    db.prepare(`INSERT INTO auth_user   (id, email, password, role_id, created_at) VALUES (?,?,?,?,?)`).run('auth-admin', adminEmail, hashedPassword, 'role-admin', now)
-    db.prepare(`INSERT INTO profile     (id, org_id, auth_user_id, name, created_at) VALUES (?,?,?,?,?)`).run('profile-admin', 'org-1', 'auth-admin', adminName, now)
-    db.prepare(`INSERT INTO truck       (id, org_id, reg_number, model, created_at) VALUES (?,?,?,?,?)`).run('truck-1', 'org-1', truckReg, truckModel, now)
-  })()
+  // Note: We are not using a transaction here for simplicity.
+  // The seed is idempotent and safe to run multiple times.
+  db.prepare(`INSERT INTO organisation (id, name, created_at) VALUES (?,?,?)`).run('org-1', orgName, now)
+  db.prepare(`INSERT INTO user_role   (id, role) VALUES (?,?)`).run('role-admin',    'ADMIN')
+  db.prepare(`INSERT INTO user_role   (id, role) VALUES (?,?)`).run('role-business', 'BUSINESS')
+  db.prepare(`INSERT INTO user_role   (id, role) VALUES (?,?)`).run('role-personal', 'PERSONAL')
+  db.prepare(`INSERT INTO auth_user   (id, email, password, role_id, created_at) VALUES (?,?,?,?,?)`).run('auth-admin', adminEmail, hashedPassword, 'role-admin', now)
+  db.prepare(`INSERT INTO profile     (id, org_id, auth_user_id, name, created_at) VALUES (?,?,?,?,?)`).run('profile-admin', 'org-1', 'auth-admin', adminName, now)
+  db.prepare(`INSERT INTO truck       (id, org_id, reg_number, model, created_at) VALUES (?,?,?,?,?)`).run('truck-1', 'org-1', truckReg, truckModel, now)
 
   console.log(`[brook] Database seeded. Admin: ${adminEmail}`)
 }
 
-// ─── Money helpers (store as integer cents × 100) ───────────────────────
+// ─── Money helpers (store as integer cents × 100) ────────────────────────────
 // Rates like "₹1200 per ton" and weights like "22.5 tons" are stored
 // as integers by multiplying by 100 and rounding.
 export function toDb(n: number): number { return Math.round(n * 100) }
 export function fromDb(n: number): number { return n / 100 }
 
-// ─── UUID ───────────────────────────────────────────────────────────────
+// ─── UUID ─────────────────────────────────────────────────────────────────────
 export function newId(): string {
   return crypto.randomUUID()
 }

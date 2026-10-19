@@ -50,11 +50,11 @@ export async function GET(request: NextRequest) {
     if (end)   { where += ' AND t.start_date <= ?'; params.push(end)   }
 
     // Get org_id from profile
-    const profile = db.prepare('SELECT org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { org_id: string }
+    const profile = await db.prepare('SELECT org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { org_id: string }
     params[0] = profile.org_id
 
-    const total  = (db.prepare(`SELECT COUNT(*) as n FROM trip t ${where}`).get(...params) as { n: number }).n
-    const rows   = db.prepare(`${TRIP_SELECT} ${where} ORDER BY t.start_date DESC LIMIT ? OFFSET ?`).all(...params, size, page * size) as Record<string, unknown>[]
+    const total  = (await db.prepare(`SELECT COUNT(*) as n FROM trip t ${where}`).get(...params) as { n: number }).n
+    const rows   = await db.prepare(`${TRIP_SELECT} ${where} ORDER BY t.start_date DESC LIMIT ? OFFSET ?`).all(...params, size, page * size) as Record<string, unknown>[]
 
     return Response.json({
       content:       rows.map(tripFromRow),
@@ -72,15 +72,15 @@ export async function POST(request: NextRequest) {
   try {
     const user    = await requireRole(request, 'ADMIN')
     const body    = await request.json()
-    const profile = db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
+    const profile = await db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
 
-    const truck = db.prepare('SELECT id FROM truck WHERE org_id = ? LIMIT 1').get(profile.org_id) as { id: string }
+    const truck = await db.prepare('SELECT id FROM truck WHERE org_id = ? LIMIT 1').get(profile.org_id) as { id: string }
 
     // Close any open IN_BETWEEN trip when creating a new REVENUE trip
-    db.prepare(`UPDATE trip SET status = 'COMPLETED', updated_at = ${sqlNow()} WHERE org_id = ? AND trip_type = 'IN_BETWEEN' AND status NOT IN ('COMPLETED')`).run(profile.org_id)
+    await db.prepare(`UPDATE trip SET status = 'COMPLETED', updated_at = ${sqlNow()} WHERE org_id = ? AND trip_type = 'IN_BETWEEN' AND status NOT IN ('COMPLETED')`).run(profile.org_id)
 
     const id = newId()
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO trip (id, org_id, truck_id, trip_type, broker_name, rate_per_ton, agreed_weight,
         brokerage_pct, status, start_date, created_by, updated_by, created_at, updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,${sqlNow()},${sqlNow()})
@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
       profile.id,
     )
 
-    const row = db.prepare(`${TRIP_SELECT} WHERE t.id = ?`).get(id) as Record<string, unknown>
+    const row = await db.prepare(`${TRIP_SELECT} WHERE t.id = ?`).get(id) as Record<string, unknown>
     return Response.json(tripFromRow(row), { status: 201 })
   } catch (err) {
     return authErrorResponse(err)

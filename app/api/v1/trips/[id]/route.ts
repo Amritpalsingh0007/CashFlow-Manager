@@ -57,7 +57,7 @@ export async function GET(
     const { id } = await ctx.params
     await requireRole(request, 'ADMIN')
 
-    const trip = db.prepare(`
+    const trip = await db.prepare(`
       SELECT t.*, p1.name as created_by_name, p2.name as updated_by_name
       FROM trip t
       LEFT JOIN profile p1 ON p1.id = t.created_by
@@ -67,8 +67,8 @@ export async function GET(
 
     if (!trip) return Response.json({ message: 'Trip not found' }, { status: 404 })
 
-    const payments = db.prepare('SELECT * FROM payment WHERE trip_id = ? ORDER BY received_date').all(id) as Record<string, unknown>[]
-    const expenses = db.prepare(`
+    const payments = await db.prepare('SELECT * FROM payment WHERE trip_id = ? ORDER BY received_date').all(id) as Record<string, unknown>[]
+    const expenses = await db.prepare(`
       SELECT e.*, p.name as created_by_name FROM expense e
       LEFT JOIN profile p ON p.id = e.created_by
       WHERE e.trip_id = ? ORDER BY e.expense_date
@@ -89,10 +89,10 @@ export async function PATCH(
     const user   = await requireRole(request, 'ADMIN')
     const body   = await request.json()
 
-    const trip = db.prepare('SELECT * FROM trip WHERE id = ?').get(id)
+    const trip = await db.prepare('SELECT * FROM trip WHERE id = ?').get(id)
     if (!trip) return Response.json({ message: 'Trip not found' }, { status: 404 })
 
-    const profile = db.prepare('SELECT id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string }
+    const profile = await db.prepare('SELECT id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string }
 
     const updates: Record<string, unknown> = { updated_at: new Date().toISOString(), updated_by: profile.id }
     if (body.status          !== undefined) updates.status          = body.status
@@ -103,15 +103,15 @@ export async function PATCH(
     // paymentReceived is NOT editable via this endpoint — set automatically by PaymentService
 
     const setClauses = Object.keys(updates).map((k) => `${k} = ?`).join(', ')
-    db.prepare(`UPDATE trip SET ${setClauses} WHERE id = ?`).run(...Object.values(updates), id)
+    await db.prepare(`UPDATE trip SET ${setClauses} WHERE id = ?`).run(...Object.values(updates), id)
 
     // Auto-create IN_BETWEEN trip when status becomes DELIVERED
     if (body.status === 'DELIVERED') {
       const tripRow = trip as Record<string, unknown>
       const ibId  = 'ib-' + id
-      const ibExists = db.prepare('SELECT id FROM trip WHERE id = ?').get(ibId)
+      const ibExists = await db.prepare('SELECT id FROM trip WHERE id = ?').get(ibId)
       if (!ibExists) {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO trip (id, org_id, truck_id, trip_type, broker_name, rate_per_ton, agreed_weight,
             brokerage_pct, status, start_date, created_by, updated_by, created_at, updated_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,${sqlNow()},${sqlNow()})
@@ -120,14 +120,14 @@ export async function PATCH(
       }
     }
 
-    const updated = db.prepare(`
+    const updated = await db.prepare(`
       SELECT t.*, p1.name as created_by_name, p2.name as updated_by_name
       FROM trip t LEFT JOIN profile p1 ON p1.id = t.created_by LEFT JOIN profile p2 ON p2.id = t.updated_by
       WHERE t.id = ?
     `).get(id) as Record<string, unknown>
 
-    const payments = db.prepare('SELECT * FROM payment WHERE trip_id = ?').all(id) as Record<string, unknown>[]
-    const expenses = db.prepare(`SELECT e.*, p.name as created_by_name FROM expense e LEFT JOIN profile p ON p.id = e.created_by WHERE e.trip_id = ?`).all(id) as Record<string, unknown>[]
+    const payments = await db.prepare('SELECT * FROM payment WHERE trip_id = ?').all(id) as Record<string, unknown>[]
+    const expenses = await db.prepare(`SELECT e.*, p.name as created_by_name FROM expense e LEFT JOIN profile p ON p.id = e.created_by WHERE e.trip_id = ?`).all(id) as Record<string, unknown>[]
 
     return Response.json(tripDetailFromRows(updated, payments, expenses))
   } catch (err) {
@@ -142,7 +142,7 @@ export async function DELETE(
   try {
     const { id } = await ctx.params
     await requireRole(request, 'ADMIN')
-    db.prepare('DELETE FROM trip WHERE id = ?').run(id)
+    await db.prepare('DELETE FROM trip WHERE id = ?').run(id)
     return new Response(null, { status: 204 })
   } catch (err) {
     return authErrorResponse(err)

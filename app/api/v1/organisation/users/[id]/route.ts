@@ -19,18 +19,18 @@ export async function PATCH(
 
     if (Object.keys(profileUpdates).length > 0) {
       const set = Object.keys(profileUpdates).map((k) => `${k} = ?`).join(', ')
-      db.prepare(`UPDATE profile SET ${set} WHERE id = ?`).run(...Object.values(profileUpdates), id)
+      await db.prepare(`UPDATE profile SET ${set} WHERE id = ?`).run(...Object.values(profileUpdates), id)
     }
 
     if (body.password) {
       const hashed = await bcrypt.hash(body.password, 10)
-      const authRow = db.prepare('SELECT auth_user_id FROM profile WHERE id = ?').get(id) as { auth_user_id: string } | undefined
+      const authRow = (await db.prepare('SELECT auth_user_id FROM profile WHERE id = ?').get(id)) as { auth_user_id: string } | undefined
       if (authRow) {
-        db.prepare('UPDATE auth_user SET password = ? WHERE id = ?').run(hashed, authRow.auth_user_id)
+        await db.prepare('UPDATE auth_user SET password = ? WHERE id = ?').run(hashed, authRow.auth_user_id)
       }
     }
 
-    const updated = db.prepare(`
+    const updated = await db.prepare(`
       SELECT p.id, p.name, p.phone, ur.role
       FROM profile p
       JOIN auth_user au ON au.id = p.auth_user_id
@@ -52,15 +52,12 @@ export async function DELETE(
     const { id } = await ctx.params
     await requireRole(request, 'ADMIN')
 
-    // Get auth_user_id before deleting profile
-    const row = db.prepare('SELECT auth_user_id FROM profile WHERE id = ?').get(id) as { auth_user_id: string } | undefined
+    const row = (await db.prepare('SELECT auth_user_id FROM profile WHERE id = ?').get(id)) as { auth_user_id: string } | undefined
     if (!row) return Response.json({ message: 'User not found' }, { status: 404 })
 
-    db.transaction(() => {
-      db.prepare('DELETE FROM refresh_token WHERE auth_user_id = ?').run(row.auth_user_id)
-      db.prepare('DELETE FROM profile WHERE id = ?').run(id)
-      db.prepare('DELETE FROM auth_user WHERE id = ?').run(row.auth_user_id)
-    })()
+    await db.prepare('DELETE FROM refresh_token WHERE auth_user_id = ?').run(row.auth_user_id)
+    await db.prepare('DELETE FROM profile WHERE id = ?').run(id)
+    await db.prepare('DELETE FROM auth_user WHERE id = ?').run(row.auth_user_id)
 
     return new Response(null, { status: 204 })
   } catch (err) {

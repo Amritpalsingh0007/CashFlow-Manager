@@ -8,7 +8,7 @@ const PERSONAL_CATS = new Set(['HOUSEHOLD','GROCERY','MEDICAL','OTHER_PERSONAL']
 export async function GET(request: NextRequest) {
   try {
     const user    = await requireAuth(request)
-    const profile = db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
+    const profile = await db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
     const sp      = request.nextUrl.searchParams
     const page    = Math.max(0, Number(sp.get('page') ?? 0))
     const size    = Math.min(100, Math.max(1, Number(sp.get('size') ?? 20)))
@@ -29,8 +29,8 @@ export async function GET(request: NextRequest) {
     if (start) { where += ' AND e.expense_date >= ?'; params.push(start) }
     if (end)   { where += ' AND e.expense_date <= ?'; params.push(end)   }
 
-    const total = (db.prepare(`SELECT COUNT(*) as n FROM expense e ${where}`).get(...params) as { n: number }).n
-    const rows  = db.prepare(`
+    const total = (await db.prepare(`SELECT COUNT(*) as n FROM expense e ${where}`).get(...params) as { n: number }).n
+    const rows  = await db.prepare(`
       SELECT e.*, p.name as created_by_name FROM expense e
       LEFT JOIN profile p ON p.id = e.created_by
       ${where}
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const user    = await requireAuth(request)
-    const profile = db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
+    const profile = await db.prepare('SELECT id, org_id FROM profile WHERE auth_user_id = ?').get(user.sub) as { id: string; org_id: string }
     const body    = await request.json()
 
     if (!body.amount || !body.category || !body.expenseDate) {
@@ -73,12 +73,12 @@ export async function POST(request: NextRequest) {
     }
 
     const id = newId()
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO expense (id, org_id, trip_id, amount, category, expense_date, notes, created_by, updated_by, created_at, updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,${sqlNow()},${sqlNow()})
     `).run(id, profile.org_id, body.tripId ?? null, toDb(body.amount), body.category, body.expenseDate, body.notes ?? '', profile.id, profile.id)
 
-    const row = db.prepare(`
+    const row = await db.prepare(`
       SELECT e.*, p.name as created_by_name FROM expense e
       LEFT JOIN profile p ON p.id = e.created_by WHERE e.id = ?
     `).get(id) as Record<string, unknown>

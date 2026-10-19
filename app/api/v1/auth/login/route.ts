@@ -12,7 +12,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Find auth user + role + profile name
-    const row = db.prepare(`
+    const row = await db.prepare(`
       SELECT au.id, au.email, au.password, ur.role, p.name, p.id as profile_id
       FROM auth_user au
       JOIN user_role ur ON ur.id = au.role_id

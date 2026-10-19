@@ -21,34 +21,34 @@ export async function POST(request: NextRequest) {
     }
 
     // Check DB record exists
-    const stored = db.prepare('SELECT * FROM refresh_token WHERE id = ? AND token = ?')
-      .get(payload.jti, rawToken) as { id: string; auth_user_id: string } | undefined
+    const stored = (await db.prepare('SELECT * FROM refresh_token WHERE id = ? AND token = ?')
+      .get(payload.jti, rawToken)) as { id: string; auth_user_id: string } | undefined
 
     if (!stored) {
       return Response.json({ message: 'Refresh token revoked' }, { status: 401 })
     }
 
     // Load user info
-    const row = db.prepare(`
+    const row = (await db.prepare(`
       SELECT au.id, ur.role, p.name
       FROM auth_user au
       JOIN user_role ur ON ur.id = au.role_id
       JOIN profile p ON p.auth_user_id = au.id
       WHERE au.id = ?
-    `).get(stored.auth_user_id) as { id: string; role: string; name: string } | undefined
+    `).get(stored.auth_user_id)) as { id: string; role: string; name: string } | undefined
 
     if (!row) {
       return Response.json({ message: 'User not found' }, { status: 401 })
     }
 
     // Rotate: delete old, issue new
-    db.prepare('DELETE FROM refresh_token WHERE id = ?').run(stored.id)
+    await db.prepare('DELETE FROM refresh_token WHERE id = ?').run(stored.id)
 
     const newRefreshId    = newId()
     const newRefreshToken = await signRefreshToken(row.id, newRefreshId)
     const expiry          = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO refresh_token (id, auth_user_id, token, expiry, created_at)
       VALUES (?, ?, ?, ?, ${sqlNow()})
     `).run(newRefreshId, row.id, newRefreshToken, expiry)
