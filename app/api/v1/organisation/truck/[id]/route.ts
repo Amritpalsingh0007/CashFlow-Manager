@@ -22,7 +22,7 @@ export async function PATCH(
     const set = Object.keys(updates).map((k) => `${k} = ?`).join(', ')
     db.prepare(`UPDATE truck SET ${set} WHERE id = ?`).run(...Object.values(updates), id)
 
-    const truck = db.prepare('SELECT id, reg_number as regNumber, model FROM truck WHERE id = ?').get(id)
+    const truck = db.prepare('SELECT id, reg_number as "regNumber"                                                                                                                          , model FROM truck WHERE id = ?').get(id)
     return Response.json(truck)
   } catch (err) {
     return authErrorResponse(err)

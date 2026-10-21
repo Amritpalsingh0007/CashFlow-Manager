@@ -6,7 +6,7 @@ export async function GET(request: NextRequest) {
   try {
     const user    = await requireRole(request, 'ADMIN')
     const profile = (await db.prepare('SELECT org_id FROM profile WHERE auth_user_id = ?').get(user.sub)) as { org_id: string }
-    const trucks = await db.prepare('SELECT id, reg_number as regNumber, model FROM truck WHERE org_id = ? ORDER BY created_at DESC').all(profile.org_id)
+    const trucks = await db.prepare('SELECT id, reg_number as "regNumber", model FROM truck WHERE org_id = ? ORDER BY created_at DESC').all(profile.org_id)
     return Response.json(trucks)
   } catch (err) {
     return authErrorResponse(err)
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       VALUES (?, ?, ?, ?, ?)
     `).run(id, profile.org_id, regNumber, model ?? null, now)
 
-    const truck = await db.prepare('SELECT id, reg_number as regNumber, model FROM truck WHERE id = ?').get(id)
+    const truck = await db.prepare('SELECT id, reg_number as "regNumber", model FROM truck WHERE id = ?').get(id)
     return Response.json(truck, { status: 201 })
   } catch (err) {
     return authErrorResponse(err)

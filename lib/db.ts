@@ -39,19 +39,14 @@ interface DbClient {
 // ─── Production: Neon Postgres ───────────────────────────────────────────────
 
 function buildNeonClient(): DbClient {
-  // Lazy require so the module is never loaded in dev (avoids error if missing)
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { neon } = require('@neondatabase/serverless') as typeof import('@neondatabase/serverless')
+  const { Pool } = require('@neondatabase/serverless') as typeof import('@neondatabase/serverless')
 
   if (!process.env.DATABASE_URL) {
     throw new Error('[brook] DATABASE_URL must be set in production')
   }
 
-  const sql = neon(process.env.DATABASE_URL)
+  const pool = new Pool({ connectionString: process.env.DATABASE_URL })
 
-  /**
-   * Convert SQLite-style positional ? placeholders to Postgres $1, $2, ...
-   */
   function toPostgres(sqlText: string): string {
     let n = 0
     return sqlText.replace(/\?/g, () => `$${++n}`)
@@ -60,25 +55,23 @@ function buildNeonClient(): DbClient {
   return {
     prepare(sqlText: string): Statement {
       const pgSql = toPostgres(sqlText)
-
       return {
-        async get(...values: unknown[]): Promise<unknown | undefined> {
-          const rows = await (sql as any)(pgSql, values)
-          return rows[0] ?? undefined
+        async get(...values) {
+          const res = await pool.query(pgSql, values as any[])
+          return res.rows[0] ?? undefined
         },
-        async all(...values: unknown[]): Promise<unknown[]> {
-          const rows = await (sql as any)(pgSql, values)
-          return rows
+        async all(...values) {
+          const res = await pool.query(pgSql, values as any[])
+          return res.rows
         },
-        async run(...values: unknown[]): Promise<{ changes: number }> {
-          const result = await (sql as any)(pgSql, values) as any
-          return { changes: result.rowCount ?? result.length ?? 0 }
+        async run(...values) {
+          const res = await pool.query(pgSql, values as any[])
+          return { changes: res.rowCount ?? 0 }
         },
       }
     },
   }
 }
-
 // ─── Development: SQLite (better-sqlite3) ────────────────────────────────────
 
 declare global {
